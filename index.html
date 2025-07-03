@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Hydrodynamic Calculator with AI Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Neutrals -->
+    <!-- Application Structure Plan: The application is designed as a single-page interactive dashboard. This structure replaces the static, one-off nature of the original Python CLI script with a dynamic and exploratory experience. The layout is a responsive two-column grid. The left column houses the control panel with interactive sliders for input parameters (Bn, B/T, x) and cards for the immediate numerical output (C and A). The right column is dedicated to data visualization, featuring a dynamic line chart and a new AI-powered analysis section. This design was chosen for superior usability; it allows users to not only calculate specific values but also to intuitively grasp the complex relationships between parameters by observing real-time changes in both the numerical results and the graphical plots. The addition of the Gemini-powered analysis feature transforms the app from a simple calculator to a learning and analysis tool. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Input parameters `Bn`, `B/T`, `x`. Goal: User Control & Exploration. Viz/Presentation: Interactive HTML sliders. Interaction: User drags sliders, triggering real-time recalculations. Justification: Sliders are more intuitive than text fields for exploring a range of values and observing trends. Library/Method: Vanilla JS with HTML <input type="range">.
+        - Report Info: Output values `C` and `A`. Goal: Inform. Viz/Presentation: Styled HTML cards. Interaction: Read-only, values updated via JS. Justification: Provides clear, immediate numerical feedback adjacent to the controls. Library/Method: HTML/Tailwind CSS with JS DOM manipulation.
+        - Report Info: Relationship of C and A with `x`. Goal: Show Change/Trends. Viz/Presentation: Line chart. Interaction: The chart's datasets are completely recalculated and redrawn when `Bn` or `B/T` sliders change. A vertical line on the chart tracks the `x` slider's value. Justification: A chart provides far more insight into the behavior of the coefficients than single-point calculations. Library/Method: Chart.js (Canvas).
+        - Report Info: Interpretation of chart data. Goal: Explain/Analyze. Viz/Presentation: Text block below the chart. Interaction: User clicks an "Analyze" button. JS sends chart data to the Gemini API and displays the returned textual analysis. Justification: This adds a crucial layer of understanding that was missing. It explains the *meaning* behind the data, fulfilling a key user need. Library/Method: Gemini API via fetch, Vanilla JS.
+        - CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 50vh;
+            max-height: 450px;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-slate-900">Interactive Hydrodynamic Calculator</h1>
+            <p class="mt-2 text-md sm:text-lg text-slate-600">Explore Added Mass Coefficient (C) and Amplitude Ratio (A) with AI Analysis</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-2xl font-bold mb-2">Controls</h2>
+                <p class="text-slate-600 mb-6">Use the sliders to adjust the hydrodynamic parameters and see the results update in real time.</p>
+
+                <div class="space-y-6">
+                    <div>
+                        <label for="bn-slider" class="block text-sm font-medium text-slate-700">Bn: <span id="bn-value" class="font-bold text-sky-600">0.75</span></label>
+                        <input id="bn-slider" type="range" min="0.5" max="1.0" value="0.75" step="0.01" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="bt-slider" class="block text-sm font-medium text-slate-700">B/T: <span id="bt-value" class="font-bold text-sky-600">2.4</span></label>
+                        <input id="bt-slider" type="range" min="0.4" max="4.4" value="2.4" step="0.01" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="x-slider" class="block text-sm font-medium text-slate-700">x: <span id="x-value" class="font-bold text-sky-600">0.5</span></label>
+                        <input id="x-slider" type="range" min="0" max="1" value="0.5" step="0.01" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t border-slate-200">
+                    <h3 class="text-xl font-bold mb-4">Calculated Results</h3>
+                     <p class="text-slate-600 mb-4">The coefficients calculated for the parameters selected above.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
+                        <div class="bg-sky-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-sky-800">Added Mass Coefficient (C)</h4>
+                            <p id="c-result" class="text-2xl font-bold text-sky-900 mt-1">-</p>
+                        </div>
+                        <div class="bg-indigo-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-indigo-800">Amplitude Ratio (A)</h4>
+                            <p id="a-result" class="text-2xl font-bold text-indigo-900 mt-1">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-lg flex flex-col">
+                 <h2 class="text-2xl font-bold mb-2">Visualization</h2>
+                 <p class="text-slate-600 mb-6">This chart visualizes the relationship between the coefficients and the parameter 'x' for the selected Bn and B/T.</p>
+                <div class="chart-container">
+                    <canvas id="hydroChart"></canvas>
+                </div>
+                <div class="mt-6 text-center">
+                    <button id="analyze-button" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400">
+                        ✨ Analyze Chart
+                    </button>
+                </div>
+                <div id="analysis-section" class="mt-6 pt-6 border-t border-slate-200 hidden">
+                    <h3 class="text-xl font-bold mb-4">AI Analysis</h3>
+                    <div id="analysis-content" class="text-slate-700 space-y-2"></div>
+                </div>
+            </div>
+        </main>
+
+    </div>
+
+    <script>
+        const equations_c = {1.0:{0.4:x=>25.4319*x**8-167.803*x**7+462.976*x**6-692.285*x**5+606.986*x**4-313.851*x**3+89.7265*x**2-11.1022*x+1.58697,0.8:x=>8.72678*x**8-59.5552*x**7+171.825*x**6-273.375*x**5+262.495*x**4-156.118*x**3+55.7776*x**2-10.004*x+1.72948,1.2:x=>1.9763*x**6-11.4921*x**5+27.3004*x**4-33.7212*x**3+22.3441*x**2-6.81887*x+1.74686,1.6:x=>5.80924*x**8-36.9516*x**7+97.6292*x**6-140.055*x**5+121.659*x**4-69.8161*x**3+28.7127*x**2-7.63228*x+1.85593,2.0:x=>8.50462*x**8-54.9729*x**7+148.759*x**6-220.06*x**5+196.304*x**4-111.415*x**3+41.9802*x**2-10.1142*x+2.08731,2.4:x=>2.40044*x**8-18.8776*x**7+62.9977*x**6-116.404*x**5+130.579*x**4-92.151*x**3+41.151*x**2-11.0297*x+2.25831,2.8:x=>9.62464*x**8-67.3263*x**7+198.551*x**6-321.421*x**5+312.362*x**4-188.281*x**3+70.9139*x**2-16.1537*x+2.66333,3.6:x=>3.68045*x**8-27.7851*x**7+89.6315*x**6-161.252*x**5+177.029*x**4-122.079*x**3+52.7368*x**2-13.7042*x+2.59361,4.4:x=>-0.0247978*x**8-0.0510849*x**7+1.8129*x**6-8.62986*x**5+19.295*x**4-24.1605*x**3+17.7871*x**2-7.40725*x+2.20208},0.9:{0.4:x=>x<=0.138?1.1138*x**6-5.4856*x**5+10.206*x**4-8.4133*x**3+1.9818*x**2+1.3367*x+0.4896:(1.5234*x**5+4.0876*x**4+10.4239*x**3-1.9445*x**2+0.5609*x-0.0101)/(x**5-1.6302*x**4-5.6165*x**3+2.9821*x**2+0.3513*x-0.0083),0.8:x=>4.492*x**6-24.037*x**5+51.672*x**4-56.83*x**3+33.164*x**2-8.9968*x+1.5999,1.2:x=>2.0991*x**6-12.429*x**5+29.914*x**4-37.67*x**3+26.214*x**2-9.1688*x+1.9691,1.6:x=>x<=0.45863?2776.3*x**6-5152.4*x**5+3885.2*x**4-1526.3*x**3+333.69*x**2-40.175*x+3.0001:0.4379*x**4-2.0727*x**3+3.4093*x**2-2.0179*x+1.0926,2.0:x=>0.349*x**6-3.1328*x**5+10.381*x**4-17.001*x**3+14.9*x**2-6.5617*x+1.8481,2.4:x=>0.7098*x**4-3.1786*x**3+5.3947*x**2-3.9685*x+1.8,2.8:x=>0.6954*x**4-3.086*x**3+5.1978*x**2-3.8986*x+1.846,3.6:x=>1.1809*x**4-4.8807*x**3+7.3177*x**2-4.6652*x+1.8015,4.4:x=>0.3192*x**6-2.4602*x**5+7.7761*x**4-12.977*x**3+12.052*x**2-5.8356*x+1.8547},0.8:{0.4:x=>10.812*x**6-53.738*x**5+104.95*x**4-101.41*x**3+49.498*x**2-10.415*x+1.2262,0.8:x=>6.1529*x**6-31.075*x**5+62.671*x**4-64.519*x**3+35.654*x**2-9.612*x+1.5017,1.2:x=>0.8743*x**6-5.8042*x**5+15.816*x**4-22.619*x**3+17.835*x**2-7.0515*x+1.6204,1.6:x=>0.0079*x**6-1.3853*x**5+6.6705*x**4-12.804*x**3+12.291*x**2-5.8175*x+1.6589,2.0:x=>2.7008*x**6-13.743*x**5+28.346*x**4-30.982*x**3+19.802*x**2-7.3647*x+1.8604,2.4:x=>1.1155*x**6-6.7516*x**5+16.733*x**4-21.987*x**3+16.589*x**2-7.0242*x+1.9508,2.8:x=>1.1513*x**6-7.0938*x**5+17.952*x**4-24.034*x**3+18.257*x**2-7.6829*x+2.0938,3.6:x=>1.5272*x**6-8.4888*x**5+19.491*x**4-24.058*x**3+17.367*x**2-7.2931*x+2.1322,4.4:x=>1.1987*x**6-7.137*x**5+17.523*x**4-22.941*x**3+17.262*x**2-7.4016*x+2.2127},0.7:{0.4:x=>4.7366*x**6-24.06*x**5+48.36*x**4-48.651*x**3+25.126*x**2-5.5821*x+0.7802,0.8:x=>4.0371*x**6-21.033*x**5+44.223*x**4-48.245*x**3+29*x**2-8.8891*x+1.481,1.2:x=>2.3264*x**6-12.602*x**5+27.808*x**4-32.413*x**3+21.533*x**2-7.8001*x+1.6686,1.6:x=>0.9411*x**6-5.6691*x**5+14.179*x**4-19.121*x**3+14.963*x**2-6.4941*x+1.7272,2.0:x=>2.0041*x**6-10.826*x**5+23.751*x**4-27.442*x**3+18.243*x**2-7.0385*x+1.8536,2.4:x=>0.151*x**6-1.4625*x**5+5.2042*x**4-9.3184*x**3+9.261*x**2-5.0225*x+1.7696,2.8:x=>0.8377*x**6-5.0027*x**5+12.394*x**4-16.551*x**3+12.962*x**2-5.9428*x+1.9122,3.6:x=>0.3223*x**6-2.5952*x**5+8.1263*x**4-13*x**3+11.579*x**2-5.7651*x+1.9966,4.4:x=>1.8415*x**6-10.293*x**5+23.435*x**4-28.157*x**3+19.424*x**2-7.7716*x+2.2355},0.6:{0.4:x=>5.6861*x**6-29.165*x**5+59.597*x**4-61.632*x**3+33.492*x**2-8.4704*x+1.0647,0.8:x=>9.6468*x**6-48.711*x**5+97.658*x**4-99.242*x**3+54.152*x**2-15.144*x+2.0837,1.2:x=>6.9596*x**6-35.752*x**5+73.462*x**4-77.305*x**3+44.416*x**2-13.595*x+2.2487,1.6:x=>6.003*x**6-31.21*x**5+64.996*x**4-69.487*x**3+40.748*x**2-12.922*x+2.3508,2.0:x=>4.6777*x**6-24.405*x**5+51.016*x**4-54.817*x**3+32.55*x**2-10.751*x+2.2472,2.4:x=>4.2008*x**6-22.219*x**5+47.321*x**4-52.107*x**3+31.828*x**2-10.795*x+2.3413,2.8:x=>2.5599*x**6-13.915*x**5+30.716*x**4-35.535*x**3+23.283*x**2-8.7156*x+2.2205,3.6:x=>1.8325*x**6-10.122*x**5+22.824*x**4-27.189*x**3+18.602*x**2-7.4493*x+2.1745,4.4:x=>0.7434*x**6-4.7001*x**5+12.226*x**4-16.922*x**3+13.493*x**2-6.2532*x+2.1318},0.5:{0.4:x=>5.1677*x**6-26.009*x**5+52.321*x**4-54.066*x**3+30.873*x**2-9.5937*x+1.6907,0.8:x=>5.1677*x**6-26.009*x**5+52.321*x**4-54.066*x**3+30.873*x**2-9.5937*x+1.6907,1.2:x=>2.1047*x**6-11.305*x**5+24.778*x**4-28.762*x**3+19.258*x**2-7.4437*x+1.7879,1.6:x=>1.9465*x**6-10.639*x**5+23.713*x**4-27.855*x**3+18.737*x**2-7.3442*x+1.9134,2.0:x=>2.0101*x**6-10.924*x**5+24.138*x**4-28.053*x**3+18.665*x**2-7.2832*x+1.9858,2.4:x=>0.8863*x**6-5.2966*x**5+13.134*x**4-17.473*x**3+13.507*x**2-6.1303*x+1.9632,2.8:x=>1.1188*x**6-6.4501*x**5+15.512*x**4-20.079*x**3+15.084*x**2-6.6282*x+2.0769,3.6:x=>1.1024*x**6-6.4614*x**5+15.689*x**4-20.372*x**3+15.283*x**2-6.7093*x+2.1645,4.4:x=>-0.1239*x**6-0.1875*x**5+2.956*x**4-7.4124*x**3+8.4254*x**2-4.9697*x+2.0549}};
+        const equations_a = {1.0:{0.4:x=>0.0461*x**6+0.8533*x**5-4.5885*x**4+8.0328*x**3-5.801*x**2+1.4785*x+0.0054,0.8:x=>-0.3708*x**6+2.2462*x**5-5.2981*x**4+6.6634*x**3-4.9049*x**2+1.7131*x+0.0095,1.2:x=>-0.5046*x**6+2.838*x**5-6.4337*x**4+7.7278*x**3-5.5243*x**2+2.1173*x-0.0056,1.6:x=>-0.6221*x**6+2.8577*x**5-5.2225*x**4+5.257*x**3-3.7792*x**2+1.8523*x+0.001,2.0:x=>-0.5562*x**6+2.7877*x**5-5.6166*x**4+6.0599*x**3-4.2822*x**2+2.0876*x-0.006,2.4:x=>-0.2352*x**6+1.3234*x**5-3.0056*x**4+3.7478*x**3-3.2466*x**2+1.9922*x-0.006,2.8:x=>-0.5159*x**6+2.5693*x**5-5.0964*x**4+5.2929*x**3-3.6415*x**2+2.0608*x-0.0095,3.6:x=>-0.0352*x**6+0.333*x**5-1.0199*x**4+1.5812*x**3-1.8448*x**2+1.7579*x+0.0059,4.4:x=>0.3287*x**6-1.2652*x**5+1.57*x**4-0.3027*x**3-1.225*x**2+1.7603*x-0.0003},0.9:{0.4:x=>-1.311*x**6+6.3001*x**5-12.157*x**4+12.221*x**3-6.6985*x**2+1.6551*x+0.0107,0.8:x=>-0.5593*x**6+2.8897*x**5-6.015*x**4+6.7368*x**3-4.6309*x**2+1.7593*x+0.0198,1.2:x=>-0.4747*x**6+2.5555*x**5-5.589*x**4+6.4657*x**3-4.5458*x**2+1.9698*x+0.0112,1.6:x=>-1.1465*x**6+5.4959*x**5-10.152*x**4+9.331*x**3-5.0894*x**2+2.0875*x+0.0047,2.0:x=>-0.6847*x**6+3.3489*x**5-6.368*x**4+6.1438*x**3-3.7704*x**2+1.9732*x+0.0046,2.4:x=>-0.003*x**6+0.1739*x**5-0.7371*x**4+1.3841*x**3-1.8133*x**2+1.7157*x+0.0169,2.8:x=>-0.1473*x**6+0.9731*x**5-2.4792*x**4+3.2207*x**3-2.7131*x**2+1.9431*x+0.0043,3.6:x=>-0.7344*x**6+3.7509*x**5-7.3772*x**4+7.1115*x**3-3.9617*x**2+2.1039*x+0.0006,4.4:x=>-0.4357*x**6+2.2455*x**5-4.437*x**4+4.351*x**3-2.6953*x**2+1.913*x+0.0119},0.8:{0.4:x=>-0.5626*x**6+3.2143*x**5-7.4153*x**4+8.7777*x**3-5.5886*x**2+1.6564*x+0.008,0.8:x=>-0.5731*x**6+2.909*x**5-6.0925*x**4+6.9115*x**3-4.7894*x**2+1.9634*x+0.0086,1.2:x=>-0.2289*x**6+1.4366*x**5-3.5996*x**4+4.7175*x**3-3.806*x**2+2.0199*x+0.0063,1.6:x=>-0.5701*x**6+2.8884*x**5-5.8551*x**4+6.1691*x**3-4.0447*x**2+2.0934*x+0.0069,2.0:x=>-0.0807*x**6+0.6157*x**5-1.7721*x**4+2.6346*x**3-2.5748*x**2+1.9592*x+0.0066,2.4:x=>0.1998*x**6-0.711*x**5+0.6255*x**4+0.5535*x**3-1.6548*x**2+1.8384*x+0.008,2.8:x=>-0.0042*x**6+0.1142*x**5-0.5064*x**4+1.0646*x**3-1.5505*x**2+1.7851*x+0.0122,3.6:x=>-1.0058*x**6+4.4553*x**5-7.5003*x**4+6.1561*x**3-3.0977*x**2+1.9571*x+0.0085,4.4:x=>-1.0023*x**6+4.6889*x**5-8.3919*x**4+7.258*x**3-3.551*x**2+2.0105*x+0.0089},0.7:{0.4:x=>-0.145*x**6+1.0464*x**5-3.0694*x**4+4.6561*x**3-3.8342*x**2+1.4754*x+0.0174,0.8:x=>-0.763*x**6+3.704*x**5-7.188*x**4+7.3528*x**3-4.6533*x**2+1.9904*x+0.0022,1.2:x=>-0.4798*x**6+2.403*x**5-4.787*x**4+5.0033*x**3-3.3994*x**2+1.918*x+0.0026,1.6:x=>-0.7422*x**6+3.6281*x**5-6.9552*x**4+6.7841*x**3-4.0285*x**2+2.1035*x+0.0011,2.0:x=>-0.5131*x**6+2.5462*x**5-4.94*x**4+4.9258*x**3-3.1675*x**2+2.0307*x-0.0006,2.4:x=>-0.2055*x**6+1.0019*x**5-1.9638*x**4+2.1876*x**3-1.9341*x**2+1.8467*x+0.0015,2.8:x=>-0.2981*x**6+1.2984*x**5-2.2039*x**4+2.0852*x**3-1.7116*x**2+1.8004*x+0.004,3.6:x=>-0.5051*x**6+2.414*x**5-4.5186*x**4+4.3276*x**3-2.6356*x**2+1.9376*x+0.0053,4.4:x=>-0.8015*x**6+3.6177*x**5-6.3199*x**4+5.5439*x**3-2.9928*x**2+2.0097*x+0.0021},0.6:{0.4:x=>-0.2506*x**6+1.284*x**5-2.8237*x**4+3.6462*x**3-3.0463*x**2+1.3782*x+0.0245,0.8:x=>-0.1876*x**6+1.0382*x**5-2.3133*x**4+2.9136*x**3-2.615*x**2+1.7143*x+0.0073,1.2:x=>-0.0234*x**6+0.2732*x**5-0.8651*x**4+1.358*x**3-1.5764*x**2+1.5908*x+0.0161,1.6:x=>-0.0306*x**6-0.0312*x**5+0.3739*x**4-0.3611*x**3-0.5474*x**2+1.4541*x+0.0196,2.0:x=>0.4711*x**6-2.384*x**5+4.6172*x**4-4.0462*x**3+1.0397*x**2+1.2275*x+0.0261,2.4:x=>-0.1005*x**6+0.0873*x**5+0.6671*x**4-1.2457*x**3+0.2482*x**2+1.3213*x+0.023,2.8:x=>0.2103*x**6-1.1287*x**5+2.3089*x**4-2.0943*x**3+0.3866*x**2+1.3214*x+0.0239,3.6:x=>-0.2792*x**6+1.1965*x**5-1.9116*x**4+1.5307*x**3-1.0569*x**2+1.5717*x+0.0102,4.4:x=>0.3095*x**6-1.3349*x**5+2.1599*x**4-1.5238*x**3+0.0786*x**2+1.3706*x+0.0236},0.5:{0.4:x=>-0.5909*x**6+2.9365*x**5-6.008*x**4+6.7359*x**3-4.7231*x**2+1.9564*x+0.0164,0.8:x=>-0.9686*x**6+4.612*x**5-8.6512*x**4+8.307*x**3-4.7907*x**2+2.1693*x+0.0095,1.2:x=>-1.135*x**6+5.3262*x**5-9.8018*x**4+9.1199*x**3-4.9369*x**2+2.3014*x-0.0009,1.6:x=>0.1457*x**6-0.5621*x**5+0.4986*x**4+0.6738*x**3-1.71*x**2+1.9076*x+0.0137,2.0:x=>-0.1786*x**6+0.8821*x**5-1.9113*x**4+2.4802*x**3-2.2361*x**2+1.9766*x+0.0082,2.4:x=>0.0776*x**6-0.3608*x**5+0.4274*x**4+0.3481*x**3-1.2887*x**2+1.8022*x+0.0159,2.8:x=>-0.1059*x**6+0.5761*x**5-1.3956*x**4+1.996*x**3-1.9214*x**2+1.8951*x+0.0126,3.6:x=>-0.8929*x**6+4.2016*x**5-7.7841*x**4+7.3182*x**3-3.9598*x**2+2.2181*x-0.0002,4.4:x=>-0.9046*x**6+4.1589*x**5-7.5223*x**4+6.8901*x**3-3.6452*x**2+2.1376*x+0.0037}};
+        
+        const bnSlider = document.getElementById('bn-slider');
+        const btSlider = document.getElementById('bt-slider');
+        const xSlider = document.getElementById('x-slider');
+        const bnValueSpan = document.getElementById('bn-value');
+        const btValueSpan = document.getElementById('bt-value');
+        const xValueSpan = document.getElementById('x-value');
+        const cResultP = document.getElementById('c-result');
+        const aResultP = document.getElementById('a-result');
+        const ctx = document.getElementById('hydroChart').getContext('2d');
+        const analyzeButton = document.getElementById('analyze-button');
+        const analysisSection = document.getElementById('analysis-section');
+        const analysisContent = document.getElementById('analysis-content');
+
+        const b_keys = Object.keys(equations_c).map(Number).sort((a,b)=>a-b);
+        const t_keys = Object.keys(equations_c[b_keys[0]]).map(Number).sort((a,b)=>a-b);
+        
+        function findBoundingKeys(val, keys) {
+            if (val <= keys[0]) return [keys[0], keys[1]];
+            if (val >= keys[keys.length - 1]) return [keys[keys.length - 2], keys[keys.length - 1]];
+            for (let i = 0; i < keys.length - 1; i++) {
+                if (val >= keys[i] && val <= keys[i + 1]) {
+                    return [keys[i], keys[i + 1]];
+                }
+            }
+        }
+        
+        function interpolate2D(b, t, x_val, equations) {
+            const b_bounds = findBoundingKeys(b, b_keys);
+            const t_bounds = findBoundingKeys(t, t_keys);
+
+            const [b1, b2] = b_bounds;
+            const [t1, t2] = t_bounds;
+
+            const f_q11 = equations[b1]?.[t1]?.(x_val) ?? NaN;
+            const f_q12 = equations[b1]?.[t2]?.(x_val) ?? NaN;
+            const f_q21 = equations[b2]?.[t1]?.(x_val) ?? NaN;
+            const f_q22 = equations[b2]?.[t2]?.(x_val) ?? NaN;
+            
+            if ([f_q11, f_q12, f_q21, f_q22].some(isNaN)) {
+                return NaN;
+            }
+
+            if (b1 === b2 && t1 === t2) return f_q11;
+            if (b1 === b2) {
+                return f_q11 + (f_q12 - f_q11) * (t - t1) / (t2 - t1);
+            }
+            if (t1 === t2) {
+                return f_q11 + (f_q21 - f_q11) * (b - b1) / (b2 - b1);
+            }
+
+            const R1 = ((b2 - b) / (b2 - b1)) * f_q11 + ((b - b1) / (b2 - b1)) * f_q21;
+            const R2 = ((b2 - b) / (b2 - b1)) * f_q12 + ((b - b1) / (b2 - b1)) * f_q22;
+            
+            return ((t2 - t) / (t2 - t1)) * R1 + ((t - t1) / (t2 - t1)) * R2;
+        }
+
+        const verticalLinePlugin = {
+            id: 'verticalLine',
+            afterDraw: (chart) => {
+                if (chart.tooltip?._active?.length) return;
+                const xAxis = chart.scales.x;
+                const yAxis = chart.scales.y;
+                const ctx = chart.ctx;
+                const xVal = parseFloat(xSlider.value);
+                const x = xAxis.getPixelForValue(xVal);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(x, yAxis.top);
+                ctx.lineTo(x, yAxis.bottom);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+                ctx.stroke();
+                ctx.restore();
+            }
+        };
+
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [ { label: 'Added Mass Coefficient (C)', data: [], borderColor: 'rgb(2, 132, 199)', backgroundColor: 'rgba(2, 132, 199, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.1 }, { label: 'Amplitude Ratio (A)', data: [], borderColor: 'rgb(99, 102, 241)', backgroundColor: 'rgba(99, 102, 241, 0.1)', borderWidth: 2, pointRadius: 0, tension: 0.1 } ] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'linear', position: 'bottom', title: { display: true, text: 'x value' } }, y: { beginAtZero: false, title: { display: true, text: 'Coefficient Value' } } }, plugins: { tooltip: { mode: 'index', intersect: false, }, legend: { position: 'top', }, title: { display: true, text: 'Coefficients vs. x', font: { size: 16 } } }, interaction: { intersect: false, mode: 'index', }, },
+            plugins: [verticalLinePlugin]
+        });
+
+        function updateCalculations() {
+            const bn = parseFloat(bnSlider.value);
+            const bt = parseFloat(btSlider.value);
+            const x = parseFloat(xSlider.value);
+            
+            bnValueSpan.textContent = bn.toFixed(2);
+            btValueSpan.textContent = bt.toFixed(2);
+            xValueSpan.textContent = x.toFixed(2);
+            
+            const c = interpolate2D(bn, bt, x, equations_c);
+            const a = interpolate2D(bn, bt, x, equations_a);
+            
+            cResultP.textContent = isNaN(c) ? 'N/A' : c.toFixed(4);
+            aResultP.textContent = isNaN(a) ? 'N/A' : a.toFixed(4);
+
+            chart.draw();
+        }
+
+        function updateChart() {
+            const bn = parseFloat(bnSlider.value);
+            const bt = parseFloat(btSlider.value);
+
+            const x_values = Array.from({ length: 101 }, (_, i) => i * 0.01);
+            const c_data = x_values.map(x => interpolate2D(bn, bt, x, equations_c));
+            const a_data = x_values.map(x => interpolate2D(bn, bt, x, equations_a));
+            
+            chart.data.labels = x_values;
+            chart.data.datasets[0].data = c_data;
+            chart.data.datasets[1].data = a_data;
+
+            chart.options.plugins.title.text = `Coefficients vs. x for Bn=${bn.toFixed(2)} and B/T=${bt.toFixed(2)}`;
+            
+            chart.update();
+        }
+
+        async function getAnalysis() {
+            analyzeButton.disabled = true;
+            analysisSection.classList.remove('hidden');
+            analysisContent.innerHTML = '<div class="loader"></div><p class="text-center text-slate-500">Analyzing, please wait...</p>';
+
+            const bn = parseFloat(bnSlider.value);
+            const bt = parseFloat(btSlider.value);
+            const x_values = chart.data.labels.map(v => v.toFixed(2));
+            const c_values = chart.data.datasets[0].data.map(v => v ? v.toFixed(4) : 'NaN');
+            const a_values = chart.data.datasets[1].data.map(v => v ? v.toFixed(4) : 'NaN');
+
+            const prompt = `
+                You are an expert in naval architecture and hydrodynamics. Analyze the following data from an interactive chart and provide a concise, easy-to-understand explanation for a student or engineer.
+
+                Context:
+                The chart displays two key hydrodynamic coefficients for a floating body as a function of a parameter 'x' (ranging from 0 to 1). The analysis is for a specific non-dimensional breadth 'Bn' and breadth-to-draft ratio 'B/T'.
+
+                - 'Bn' value: ${bn.toFixed(2)}
+                - 'B/T' value: ${bt.toFixed(2)}
+
+                The two curves are:
+                1. Added Mass Coefficient (C): This represents the additional inertia on the body due to the surrounding water when it accelerates. Higher values mean more resistance to changes in motion.
+                2. Amplitude Ratio (A): This represents the motion response of the body to waves. Higher values indicate larger motions.
+
+                Data (showing a subset for brevity):
+                - x-values: ${x_values.slice(0,20).join(', ')}...
+                - C-values (Added Mass): ${c_values.slice(0,20).join(', ')}...
+                - A-values (Amplitude Ratio): ${a_values.slice(0,20).join(', ')}...
+
+                Please provide an analysis that covers:
+                1. A brief overview of the trend for the Added Mass Coefficient (C). Where does it peak or have significant features? What does this mean in practical terms?
+                2. A brief overview of the trend for the Amplitude Ratio (A). Where does it peak? What does this signify for the body's motion response (e.g., resonance)?
+                3. The relationship between the two curves. Is there a point where motion is high but added mass is low, or vice-versa? What are the implications?
+                4. A concluding summary of the overall hydrodynamic behavior for this specific Bn and B/T configuration.
+
+                Format your response using simple HTML paragraphs. Start each of the four points with a bolded title (e.g., "<p><b>Added Mass (C) Trend:</b> ...</p>").
+            `;
+
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API request failed with status ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    analysisContent.innerHTML = text;
+                } else {
+                    throw new Error("Invalid response structure from API.");
+                }
+
+            } catch (error) {
+                analysisContent.innerHTML = `<p class="text-red-500 text-center">Sorry, an error occurred while generating the analysis. Please try again. <br><small>${error.message}</small></p>`;
+            } finally {
+                analyzeButton.disabled = false;
+            }
+        }
+
+        analyzeButton.addEventListener('click', getAnalysis);
+
+        bnSlider.addEventListener('input', () => {
+            updateCalculations();
+            updateChart();
+        });
+        btSlider.addEventListener('input', () => {
+            updateCalculations();
+            updateChart();
+        });
+        xSlider.addEventListener('input', updateCalculations);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateCalculations();
+            updateChart();
+        });
+
+    </script>
+</body>
+</html>
